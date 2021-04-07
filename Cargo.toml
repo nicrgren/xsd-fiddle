@@ -1,0 +1,15 @@
+[package]
+name = "xsd-test"
+version = "0.1.0"
+authors = ["Niclas Rosengren <niclas.rosengren@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0.125", default_features = false, features = [ "derive" ] }
+
+
+[dependencies.serde-xml-rs]
+git = "ssh://git@github.com/RReverser/serde-xml-rs.git"
+branch = "master"
