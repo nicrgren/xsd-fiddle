@@ -1,4 +1,4 @@
-pub use super::{ComplexType, Element, Kind, Occurence};
+pub use super::{ComplexType, Element, Kind, Occurence, SimpleType};
 
 // use crate::{Field, ObjectImpl, TypeName};
 
@@ -14,12 +14,15 @@ pub struct Schema {
     pub complex_types: Vec<ComplexType>,
 }
 
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct SimpleType {
-    pub name: String,
-
-    #[serde(rename = "restriction", default)]
-    pub restrictions: Vec<Restriction>,
+impl Schema {
+    pub fn all_elements(&self) -> impl Iterator<Item = &Element> {
+        self.elements.iter().chain(
+            self.complex_types
+                .iter()
+                .map(|ct| ct.sequences.iter().map(|seq| seq.elements.iter()).flatten())
+                .flatten(),
+        )
+    }
 }
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
@@ -36,19 +39,6 @@ pub struct Extension {
 
     #[serde(rename = "sequence", default)]
     pub sequences: Vec<Sequence>,
-}
-
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct Restriction {
-    pub base: String,
-
-    #[serde(rename = "enumeration", default)]
-    pub enumerations: Vec<Enumeration>,
-}
-
-#[derive(Debug, serde::Deserialize, PartialEq, Eq)]
-pub struct Enumeration {
-    pub value: String,
 }
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
@@ -156,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_complexy_type() {
+    fn parse_complex_type() {
         let s = r#"
 <xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
  <xs:complexType name="AccountingExportCreation">
@@ -178,14 +168,14 @@ mod tests {
         assert_eq!(schema.complex_types[0].sequences.len(), 1);
         let elements = &schema.complex_types[0].sequences[0].elements;
         assert_eq!(elements.len(), 7);
-        assert_eq!(elements[0].min_occurs, Occurence::Bound(1));
+        assert_eq!(elements[0].min_occurs, 1);
         assert_eq!(elements[0].max_occurs, Occurence::Bound(1));
         assert_eq!(elements[0].name, "CreditorPublicId");
         assert_eq!(elements[0].kind, Some(Kind::Guid));
     }
 
     #[test]
-    fn parse_compley_type_complex_content() {
+    fn parse_complex_type_complex_content() {
         let xml = r#"
 <xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
 
@@ -215,7 +205,7 @@ mod tests {
         assert_eq!(ext.base, "Attribute");
         assert_eq!(ext.sequences.len(), 1);
         assert_eq!(ext.sequences[0].elements.len(), 1);
-        assert_eq!(ext.sequences[0].elements[0].min_occurs, Occurence::Bound(1));
+        assert_eq!(ext.sequences[0].elements[0].min_occurs, 1);
         assert_eq!(ext.sequences[0].elements[0].max_occurs, Occurence::Bound(1));
         assert_eq!(ext.sequences[0].elements[0].name, "DefaultValue");
         assert_eq!(ext.sequences[0].elements[0].kind, Some(Kind::Int));
@@ -312,7 +302,7 @@ mod tests {
             );
 
             if !t.restrictions.is_empty() {
-                assert_eq!(t.restrictions[0].base, "xs:string");
+                assert_eq!(t.restrictions[0].base, Kind::String);
             }
         }
 

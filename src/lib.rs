@@ -1,40 +1,76 @@
 use core::fmt;
-use std::convert::TryInto;
 
+mod code_formatter;
+mod rust_fmt;
 pub mod xml;
 
+pub use code_formatter::CodeFormatter;
+
 pub struct ModelSchema {
-    pub models: Vec<ObjectImpl>,
+    pub implementations: Vec<Implementation>,
 }
 
 impl ModelSchema {
     pub fn create_from_xml(xml: xml::Schema) -> Result<Self, anyhow::Error> {
-        let mut models = Vec::with_capacity(200);
+        let mut implementations = Vec::new();
 
         let complex_types = xml.complex_types;
+        let simple_types = xml.simple_types;
+        let root_elements = xml.elements;
 
-        for t in complex_types
+        for ct in complex_types
             .into_iter()
             .filter(|t| !t.sequences.is_empty())
         {
-            match t.try_into() {
-                Ok(object_impl) => models.push(object_impl),
-                Err(err) => println!("Failed to create ObjectImpl: {}", err),
+            match ct.into_object_impl() {
+                Ok(object_impl) => implementations.push(Implementation::Object(object_impl)),
+                Err(err) => eprintln!("Failed to create ObjectImpl: {}", err),
             }
         }
 
-        models.sort_by(|m1: &ObjectImpl, m2: &ObjectImpl| m1.name.cmp(&m2.name));
+        for st in simple_types {
+            match st.into_enum_impl() {
+                Ok(enum_impl) => implementations.push(Implementation::Enum(enum_impl)),
+                Err(err) => eprintln!("Failed to create EnumImpl: {}", err),
+            }
+        }
 
-        Ok(Self { models })
+        implementations.sort();
+
+        Ok(Self { implementations })
     }
 }
 
-/// Represents a type parsed from XML spec.
+/// Represents a type.
 /// The base from which code is generated.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypeName {
     Primitive(Primitive),
     Array(Box<TypeName>),
     Object(String),
+}
+
+impl TypeName {
+    pub fn import_statement(&self) -> Option<&str> {
+        match self {
+            TypeName::Primitive(_) => None,
+            TypeName::Array(ref inner) => inner.import_statement(),
+            TypeName::Object(ref name) => Some(&name),
+        }
+    }
+}
+
+impl TypeName {
+    pub fn object(s: impl Into<String>) -> Self {
+        Self::Object(s.into())
+    }
+
+    pub fn array<T>(inner: T) -> Self
+    where
+        TypeName: From<T>,
+    {
+        Self::Array(Box::new(TypeName::from(inner)))
+    }
 }
 
 impl From<xml::Kind> for TypeName {
@@ -54,16 +90,23 @@ impl From<xml::Kind> for TypeName {
     }
 }
 
+impl From<Primitive> for TypeName {
+    fn from(p: Primitive) -> Self {
+        Self::Primitive(p)
+    }
+}
+
 impl fmt::Display for TypeName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TypeName::Primitive(p) => write!(f, "{}", p),
-            TypeName::Array(inner) => write!(f, "Vec<{}>", inner),
+            TypeName::Array(inner) => write!(f, "Array<{}>", inner),
             TypeName::Object(name) => write!(f, "{}", name),
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Primitive {
     Bool,
     Int,
@@ -84,33 +127,72 @@ impl fmt::Display for Primitive {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub enum Implementation {
+    Enum(EnumImpl),
+    Object(ObjectImpl),
+}
+
+impl Implementation {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Enum(inner) => inner.name.as_str(),
+            Self::Object(inner) => inner.name.as_str(),
+        }
+    }
+}
+
+impl Ord for Implementation {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name().cmp(other.name())
+    }
+}
+
+impl PartialOrd for Implementation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+/// The current EnumImpl currently only supports Strings.
+///
+/// To implement other enums, such as ints or similar the kind would
+/// have to be contained in this struct and the variants written out
+/// in the serialize function of the enum impl.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct EnumImpl {
+    pub name: String,
+    pub base: TypeName,
+    pub variants: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ObjectImpl {
     pub name: String,
     pub fields: Vec<Field>,
 }
 
-impl ObjectImpl {
-    pub fn create_impl(&self) -> String {
-        use std::io::Write;
-        let mut buf = Vec::new();
-
-        buf.write_fmt(format_args!("pub struct {} {{\n", self.name));
-        for f in &self.fields {
-            buf.write_fmt(format_args!("\t{}: {},\n", f.name, f.type_name));
-        }
-
-        buf.push(b'}');
-
-        String::from_utf8_lossy(&buf).into_owned()
-    }
-}
-
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Field {
     pub name: String,
+    pub required: bool,
     pub type_name: TypeName,
 }
 
-pub struct Enumeration {}
+impl Field {
+    pub fn new(name: impl Into<String>, type_name: impl Into<TypeName>) -> Self {
+        Self {
+            name: name.into(),
+            required: false,
+            type_name: type_name.into(),
+        }
+    }
+
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+}
 
 #[cfg(test)]
 static BILLECTA_XSD: &str = include_str!("../api.xsd");
@@ -127,15 +209,31 @@ mod tests {
 
         let models = ModelSchema::create_from_xml(xml_schema).expect("Creating ModelSchema");
 
-        models.models.iter().for_each(|m| println!("{}", m.name));
+        models
+            .implementations
+            .iter()
+            .for_each(|m| println!("{}", m.name()));
+
+        let mut fmt = super::rust_fmt::RustFmt;
+
+        println!("\n\n\n\n=====");
 
         models
-            .models
+            .implementations
             .iter()
-            .find(|m| m.name == "InvoiceAction")
+            .find(|m| m.name() == "CommonActionEvent")
             .iter()
-            .for_each(|m| println!("{}", m.create_impl()));
+            .for_each(|m| match m {
+                Implementation::Object(obj) => {
+                    let mut buf = String::new();
+                    fmt.write_impl_file(&mut buf, &obj)
+                        .expect("writing fmt file");
+                    println!("{}", buf);
+                }
 
-        println!("Created {} models", models.models.len());
+                _ => println!("NOT AN OBJECT wTF"),
+            });
+
+        println!("Created {} models", models.implementations.len());
     }
 }

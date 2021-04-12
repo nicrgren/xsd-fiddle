@@ -1,6 +1,8 @@
-use super::{ComplexContent, Sequence};
-use crate::{Field, ObjectImpl, TypeName};
-use anyhow::anyhow;
+use crate::{
+    xml::{ComplexContent, Element, Sequence},
+    Field, ObjectImpl, TypeName,
+};
+use anyhow::{anyhow, Result};
 
 #[derive(Debug, serde::Deserialize, PartialEq, Eq)]
 pub struct ComplexType {
@@ -17,9 +19,8 @@ pub struct ComplexType {
     pub complex_contents: Vec<ComplexContent>,
 }
 
-impl std::convert::TryInto<ObjectImpl> for ComplexType {
-    type Error = anyhow::Error;
-    fn try_into(self) -> Result<ObjectImpl, Self::Error> {
+impl ComplexType {
+    pub fn into_object_impl(self) -> Result<ObjectImpl> {
         if self.sequences.is_empty() {
             anyhow::bail!("`{}` has no sequences. Cannot create ObjectImpl", self.name);
         }
@@ -40,9 +41,14 @@ impl std::convert::TryInto<ObjectImpl> for ComplexType {
 
         let fields = has_types
             .into_iter()
-            .map(|el| Field {
-                name: el.name,
-                type_name: TypeName::from(el.kind.unwrap()),
+            .map(|el: Element| {
+                let required = !el.is_optional();
+                let name = el.name;
+                Field {
+                    name,
+                    required,
+                    type_name: TypeName::from(el.kind.unwrap()),
+                }
             })
             .collect();
 

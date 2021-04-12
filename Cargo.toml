@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0.40"
 serde = { version = "1.0.125", default_features = false, features = [ "derive" ] }
+heck = "0.3.2"
 
 
 [dependencies.serde-xml-rs]
