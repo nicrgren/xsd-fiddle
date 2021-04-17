@@ -25,7 +25,7 @@ impl CodeFormatter for RustFmt {
                 .into_iter()
                 .collect::<Vec<_>>();
 
-            imports.sort();
+            imports.sort_unstable();
 
             w.write_str("use super::{\n")?;
             for s in imports {
@@ -58,6 +58,8 @@ impl CodeFormatter for RustFmt {
         }
 
         w.write_char('}')?;
+
+        // Generate an Default builder.
 
         w.write_str("\n\nimpl ")?;
         w.write_str(&object.name)?;
@@ -159,9 +161,23 @@ mod tests {
         assert_eq!(
             r#"
 pub struct ImAStruct {
-    f1: bool,
-    f2: i32,
-    f3: i64,
+    pub f1: bool,
+    pub f2: i32,
+    pub f3: i64,
+}
+
+impl ImAStruct {
+    pub fn required(
+        f1: bool,
+        f2: i32,
+        f3: i64,
+    ) -> Self {
+        Self {
+            f1,
+            f2,
+            f3,
+        }
+    }
 }
 "#
             .trim(),
@@ -179,7 +195,7 @@ pub struct ImAStruct {
             fields: vec![
                 Field::new("f1", Primitive::Bool),
                 Field::new("f2", Primitive::Int),
-                Field::new("f3", Primitive::Long),
+                Field::new("f3", Primitive::Long).optional(),
                 Field::new("bool_array", TypeName::array(Primitive::Bool)),
                 Field::new("thing_array", TypeName::object("Thing")),
             ],
@@ -194,11 +210,28 @@ use super::{
 };
 
 pub struct ImAStruct {
-    f1: bool,
-    f2: i32,
-    f3: i64,
-    bool_array: Vec<bool>,
-    thing_array: Thing,
+    pub f1: bool,
+    pub f2: i32,
+    pub f3: Option<i64>,
+    pub bool_array: Vec<bool>,
+    pub thing_array: Thing,
+}
+
+impl ImAStruct {
+    pub fn required(
+        f1: bool,
+        f2: i32,
+        bool_array: Vec<bool>,
+        thing_array: Thing,
+    ) -> Self {
+        Self {
+            f1,
+            f2,
+            bool_array,
+            thing_array,
+            f3: None,
+        }
+    }
 }
 "#
             .trim(),

@@ -8,6 +8,9 @@ pub use code_formatter::CodeFormatter;
 
 pub struct ModelSchema {
     pub implementations: Vec<Implementation>,
+
+    // Tempory
+    pub elements: Vec<xml::Element>,
 }
 
 impl ModelSchema {
@@ -16,7 +19,7 @@ impl ModelSchema {
 
         let complex_types = xml.complex_types;
         let simple_types = xml.simple_types;
-        let root_elements = xml.elements;
+        let elements = xml.elements;
 
         for ct in complex_types
             .into_iter()
@@ -37,7 +40,10 @@ impl ModelSchema {
 
         implementations.sort();
 
-        Ok(Self { implementations })
+        Ok(Self {
+            implementations,
+            elements,
+        })
     }
 }
 
@@ -183,13 +189,13 @@ impl Field {
     pub fn new(name: impl Into<String>, type_name: impl Into<TypeName>) -> Self {
         Self {
             name: name.into(),
-            required: false,
+            required: true,
             type_name: type_name.into(),
         }
     }
 
-    pub fn required(mut self) -> Self {
-        self.required = true;
+    pub fn optional(mut self) -> Self {
+        self.required = false;
         self
     }
 }
